@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #SBATCH --job-name=spinchain
-#SBATCH --output=output/example_sbatch.out
-#SBATCH --error=error/example_sbatch.err
-#SBATCH --time=00:30:00
+#SBATCH --output=output/Feb15.out
+#SBATCH --error=error/Feb15.err
+#SBATCH --time=01:00:00
 #SBATCH --partition=broadwl
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=2000
 
 module load python

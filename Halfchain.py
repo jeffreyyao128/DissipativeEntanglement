@@ -34,8 +34,10 @@ Purity = lambda rho: (rho*rho).tr()
 
 
 
-def X_maj(J,omega,J1,N=5):
-    W = np.array([[0,0,2*omega],[0,-1.0/2,0],[-2*omega,0,-1.0/2]])
+def X_maj(J,omega,J1,N):
+    W = np.array([[0,0,np.sqrt(2)*omega],[0,-1.0/2,0],[-np.sqrt(2)*omega,0,-1.0/2]])
+    if N==1:
+        return W
     A = np.zeros((3,2*N-2))
     A[1,1]=J1; A[2,0]=-J1
     R = np.array([[0,J],[-J,0]])
@@ -57,11 +59,11 @@ def cov_ss(l,left,right,Bmat):
             P = P- 1/(l[i]+l[j].conj())*(left[:,i].T.conj()@Bmat@left[:,j])/(overlap[i]*overlap[j].conj())*np.einsum('i,j->ij',right[:,i],right[:,j].conj())
     return P
 
-def density(J,omega,N,Bi):
+def density(J,omega,N):
     Utransform = np.kron(np.diag([1 for _ in range(N)]),1/np.sqrt(2)*np.array([[1,1],[1j,-1j]])).T.conj()
     X = X_maj(J,omega,J,N=N)
     energy, left, right = eig(X,left=True)
-    Gamma = cov_ss(energy,left,right,Bi)
+    Gamma = cov_ss(energy,left,right,Bi(N))
     sys_mat = Gamma[1:,1:]
     ada_mat = Utransform@(np.eye(2*N)/2-1j*sys_mat)@Utransform.T
     return [np.real(ada_mat)[2*i,2*i+1] for i in range(N)]
@@ -284,7 +286,7 @@ def gap_sweep(N,N_p=40):
     plt.savefig(
         './figs/slowrate.png'
     )
-    # plt.show()
+    plt.show()
 
 def bell_pair_rate(N,N_p=40):
     omega_space = np.logspace(-1,1,N_p)
@@ -293,7 +295,7 @@ def bell_pair_rate(N,N_p=40):
     Entropy_list = np.array([[VonNeumann_entropy(J,omega,N)/(np.log(2)) for omega in omega_space] for J in J_space])
     gap_list = np.array([[gap(J,omega,N) for omega in omega_space] for J in J_space])
     plt.imshow(np.multiply(Entropy_list,gap_list),extent=(omega_space.min(),omega_space.max(),J_space.min(),J_space.max()),
-                    norm=LogNorm(vmin=1e-5,vmax=1),cmap='seismic',origin='lower')
+                    norm=LogNorm(vmin=1e-5,vmax=1),cmap='hot',origin='lower') # changed color function to hot, make things more smooth
 
     plt.xlabel(r'$\Omega/\kappa$')
     plt.ylabel(r'$J/\kappa$')
@@ -313,24 +315,14 @@ def linecut(J,N,N_p=40):
     omega_space = np.logspace(-2,2,N_p)
 
     Entropy_list = [VonNeumann_entropy(J,omega,N)/(N*np.log(2)) for omega in omega_space]
-    plt.plot(omega_space,Entropy_list,'--')
-    plt.xlabel(r'$\Omega/\kappa$')
-    plt.ylabel(rf'Relative Entropy')
-    plt.xscale('log')
-    plt.title(rf'Entanglement Entropy ($S(N)/S_B(N)$)(N={N} J={J})')
-    plt.savefig(
-        './figs/line.png'
-    )
+    plt.plot(omega_space,Entropy_list,'--',label=f'J={J},N={N}')
 
-def Entropy_N(J,omega):
-    Nspace = np.logspace(1,2,10,dtype=int)
-    Entropy_list = [VonNeumann_entropy(J,omega,N) for N in Nspace ]
-    plt.plot(Nspace,Entropy_list,'-o',label=rf'$\Omega/\kappa =$ {omega},$J/\kappa={J}$')
-    p = np.polyfit(np.log(Nspace),np.log(Entropy_list),1)
-    plt.plot(Nspace,p[1]*Nspace**p[0],label=f'a = {p[0]}')
-    # plt.plot(Nspace,gap[0][0]*Nspace[0]**3/Nspace**3,'--',label=r'$\propto N^{-3}$')
-    # plt.plot(Nspace,gap[0][0]*Nspace[0]**2/Nspace**2,'--',label=r'$\propto N^{-2}$')
-    return 
+
+def Entropy_N(J,omega,Nspace):
+    Entropy_list = [VonNeumann_entropy(J,omega,N) for N in Nspace]
+    return Entropy_list
+
+
 
 def powerlaw_fit(J,axis):
     omega_list = np.logspace(-2,1,10)
@@ -343,7 +335,74 @@ def powerlaw_fit(J,axis):
     axis.plot(omega_list,power_list,label=f'J={J}')
     return
 
+def thermal_entropy(J,omega,kappa,N):
+    '''
+    This function calculates the entropy given the local dansity
+    '''
+    B = Bi(N)
+    density_list = density(J/kappa,omega/kappa,N,B)
+    S = lambda x: -(1-x) *np.log((1-x)) - x *np.log(x)
+    return sum([S(n) for n in density_list])
+
+def thermal_sweep(N,N_p=40):
+    '''
+    Sweep the parameter space to get omega and J dependence on gap
+    '''
+    omega_space = np.logspace(-1,0,N_p)
+    J_space = np.logspace(-1,1,N_p)
+
+    relative_list = np.array([[ (-VonNeumann_entropy(J,omega,N)+thermal_entropy(J,omega,1,N))/thermal_entropy(J,omega,1,N) for omega in omega_space] for J in J_space])
+
+    # plt.imshow(np.abs(relative_list),extent=(omega_space.min(),omega_space.max(),J_space.min(),J_space.max()),
+    #                 norm=LogNorm(vmin=1e-2,vmax=1),cmap='hot',origin='lower')
+    X,Y=np.meshgrid(omega_space,J_space)
+
+    im = plt.pcolor(X,Y,relative_list, norm=LogNorm(vmin=1e-2,vmax=1),cmap='hot')
+
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel(r'$\Omega/\kappa$')
+    plt.ylabel(r'$J/\kappa$')
+
+    plt.title(rf'In chain coherence (N={N})')
+
+    plt.colorbar(im)
+    # plt.savefig(
+    #     './figs/thermal.png'
+    # )
+    plt.show()
+
+def even_odd_density(J,N,N_p=40):
+    '''
+    plot the density difference of even and odd chain, fix chain
+    '''
+    omega_space = np.logspace(-3,1,N_p)
+    diff = lambda nlist: sum([(-1)**i*nlist[i] for i in range(len(nlist))])/sum(nlist)
+    even_list = []
+    odd_list = []
+    for omega in omega_space:
+        list_even = density(J,omega,2*(N//2))
+        list_odd = density(J,omega,2*(N//2)+1)
+        even_list.append(diff(list_even))
+        odd_list.append(diff(list_odd))
+    
+    plt.plot(omega_space,even_list,'-r',label=f"even N={2*(N//2)}")
+    plt.plot(omega_space,odd_list,'--k',label=f"odd N={2*(N//2)+1}")
+
+    plt.xscale('log')
+    plt.xlabel(r'$\Omega/\kappa$')
+    plt.ylabel(r'$n_{dff}$')
+    plt.legend()
+    plt.title(rf'$(n_e-n_o)/|n_e+n_o|$ (J/$\kappa$={J})')
+    plt.show()
+    return
+
 if __name__ == '__main__':
+
+    # even_odd_density(0.1,20)
+
+    # thermal_sweep(10,N_p=10)
+
     # fig, ax = plt.subplots()
     # Jlist = np.logspace(-1,1,3)
     # for J in Jlist:
@@ -362,30 +421,62 @@ if __name__ == '__main__':
     ### Entropy sweep
     # Entropy_sweep(10,N_p=40)
 
-    ### Entropy line cut
-    J = 1; N=10
-    # linecut(J,N)
+    ## Entropy line cut
+    N_p = 20
+    Nspace = np.logspace(1,2,3,dtype=int)
+    omega_space = np.logspace(-2,2,N_p)
+
+    J = 0.1
+    for N in Nspace:
+        Entropy_list = [VonNeumann_entropy(J,omega,N)/(N*np.log(2)) for omega in omega_space]
+        plt.plot(omega_space,Entropy_list,'--',label=f'J/$\kappa$={J},N={N}')
+    J = 1
+    for N in Nspace:
+        Entropy_list = [VonNeumann_entropy(J,omega,N)/(N*np.log(2)) for omega in omega_space]
+        plt.plot(omega_space,Entropy_list,'-',label=f'J={J},N={N}')
+    J = 10
+    for N in Nspace:
+        Entropy_list = [VonNeumann_entropy(J,omega,N)/(N*np.log(2)) for omega in omega_space]
+        plt.plot(omega_space,Entropy_list,'-o',label=f'J={J},N={N}')
+    
+    plt.xlabel(r'$\Omega/\kappa$')
+    plt.ylabel(rf'Entanglement Entropy')
+    plt.xscale('log')
+    plt.title(rf'Entanglement Entropy ($S(N)/S_B(N)$)')
+    plt.legend()
+    plt.savefig(
+        './figs/line_all_new.png'
+    )
+    plt.show()
+
 
     ### Entanglement Rate
     # bell_pair_rate(N)
 
     ###slow rate
-    gap_sweep(10,N_p=40)
+    # gap_sweep(11,N_p=40)
+
     ### Entropy Calculation
     # print(VonNeumann_entropy(1,0.1,10)/(10*np.log(2)))
 
-    # Entropy_N(1,1)
-    # Entropy_N(10,0.1)
-    # Entropy_N(0.1,10)
-    # plt.xlabel('Total number N')
-    # plt.ylabel(r'Entanglement Entropy $-\mathrm{Tr} [\rho_A \log \rho_A ]$')
+    ### Entropy N dependence
+    # Nspace_even = np.logspace(0.5,2,20,dtype=int)*2  # even number
+    # J=10; omega=0.4
+    # Entropy_even = Entropy_N(J,omega,Nspace_even)
+    # plt.plot(Nspace_even,Entropy_even,'-o',label=rf'$\Omega/\kappa =$ {omega}, $J/\kappa={J}$ Even')
+
+    # Nspace_odd = Nspace_even+1
+    # Entropy_odd = Entropy_N(J,omega,Nspace_odd)
+    # plt.plot(Nspace_odd,Entropy_odd,'-o',label=rf'$\Omega/\kappa =$ {omega}, $J/\kappa={J}$ Odd')
+    # plt.xlabel('Length of the chain N')
+    # plt.ylabel(r'S = $-\mathrm{Tr}[\rho_A \log \rho_A ]$')
     # plt.legend()
     # plt.xscale('log')
     # plt.yscale('log')
     # plt.title(
     #     rf'Entanglement entropy scaling'
     # )
-    # plt.show()
+    # plt.savefig("figs/even_odd.png")
 
     # t_space = np.linspace(0,5,100)
     # clips = Time_evolve(t_space,N,omega,J,0)
